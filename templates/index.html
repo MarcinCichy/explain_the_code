@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <title>RAG: Wyjaśnianie kodu Python</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
-    <!-- Styl do highlight.js, np. github-dark -->
+    <!-- Styl highlight.js, np. github-dark -->
     <link rel="stylesheet"
           href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.7.0/styles/github-dark.min.css">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.7.0/highlight.min.js"></script>
@@ -16,7 +16,7 @@
         <h2>Twoje konwersacje</h2>
         <ul id="conversation-list">
             {% for cid in conversations %}
-            <li class="conversation-item">
+            <li class="conversation-item" id="conv-{{ cid }}">
                 <span class="conversation-name" onclick="loadConversation('{{ cid }}')">
                     Konwersacja {{ cid }}
                 </span>
@@ -31,10 +31,10 @@
     <div class="middle-panel">
         <h1>Wklej kod Pythona do wyjaśnienia</h1>
 
-        <!-- input hidden na aktualne conversation_id -->
         <input type="hidden" id="current-conversation-id" value="">
 
-        <textarea id="code-snippet" rows="15"
+        <!-- Wyłączamy sprawdzanie pisowni -->
+        <textarea id="code-snippet" rows="15" spellcheck="false"
                   placeholder="Tu wklej swój kod..."></textarea>
 
         <div class="buttons">
@@ -52,80 +52,98 @@
 </div>
 
 <script>
-// Przechowuje aktualnie wybraną konwersację
 let currentConversationId = "";
 
 // Po załadowaniu
 document.addEventListener("DOMContentLoaded", () => {
     document.getElementById("new-conversation").addEventListener("click", newConversation);
     document.getElementById("explain-button").addEventListener("click", explainCode);
-    document.getElementById("reset-button").addEventListener("click", resetConversation);
+    document.getElementById("reset-button").addEventListener("click", localReset);
     document.getElementById("exit-button").addEventListener("click", exitApp);
 });
 
-// ============================
-//  Obsługa konwersacji
-// ============================
+/* Podświetla aktywną konwersację w lewym panelu */
+function markActiveConversation(cid) {
+    document.querySelectorAll(".conversation-item").forEach(item => {
+        item.classList.remove("active-conversation");
+    });
+    if (cid) {
+        const li = document.getElementById("conv-" + cid);
+        if (li) {
+            li.classList.add("active-conversation");
+        }
+    }
+}
 
 async function newConversation() {
+    // Tworzy NA PEWNO nową konwersację na serwerze
     const response = await fetch("/new_conversation", { method: "POST" });
     const data = await response.json();
+
     currentConversationId = data.conversation_id;
     document.getElementById("current-conversation-id").value = currentConversationId;
 
-    // Wyzeruj prawy panel
-    const messagesDiv = document.getElementById("messages");
-    messagesDiv.innerHTML = "";
+    // Czyścimy prawy panel i TEKST w code-snippet?
+    // Rzecz gustu - zostawię jako czyste, bo to "nowa" konwersacja
+    document.getElementById("messages").innerHTML = "";
+    document.getElementById("code-snippet").value = "";
 
-    // Odśwież listę
     renderConversations(data.conversations);
+    markActiveConversation(currentConversationId);
 }
 
 async function loadConversation(cid) {
-    // wczytanie konwersacji
     const response = await fetch("/load_conversation", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {"Content-Type": "application/json"},
         body: JSON.stringify({ conversation_id: cid })
     });
     const data = await response.json();
 
-    // ustaw aktualne ID
     currentConversationId = data.conversation_id;
     document.getElementById("current-conversation-id").value = currentConversationId;
+    markActiveConversation(currentConversationId);
 
-    // wyczyść prawy panel
     const messagesDiv = document.getElementById("messages");
     messagesDiv.innerHTML = "";
 
-    // wstaw każdą wiadomość (code + explanation)
+    // Wstawiamy wiadomości do prawego panelu
+    let lastCode = "";
     data.messages.forEach(msg => {
         appendMessage(msg.code, msg.explanation);
+        lastCode = msg.code;  // zapamiętujemy OSTATNI kod
     });
+
+    // Odzyskujemy kod do <textarea>
+    document.getElementById("code-snippet").value = lastCode;
 }
 
 async function deleteConversation(cid) {
     const response = await fetch("/delete_conversation", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {"Content-Type": "application/json"},
         body: JSON.stringify({ conversation_id: cid })
     });
     const data = await response.json();
+
     if (currentConversationId === data.conversation_id) {
-        // jeśli usunięto konwersację, którą oglądaliśmy
+        // jeśli usunęliśmy tę, na którą patrzyliśmy
         currentConversationId = "";
         document.getElementById("current-conversation-id").value = "";
         document.getElementById("messages").innerHTML = "";
+        // Nie kasujemy code-snippet, bo user może chcieć go dalej użyć
     }
     renderConversations(data.conversations);
+    markActiveConversation("");
 }
 
-function renderConversations(conversationIds) {
+function renderConversations(list) {
     const ul = document.getElementById("conversation-list");
     ul.innerHTML = "";
-    conversationIds.forEach(cid => {
+    list.forEach(cid => {
         const li = document.createElement("li");
         li.classList.add("conversation-item");
+        li.id = "conv-" + cid;
 
         const span = document.createElement("span");
         span.classList.add("conversation-name");
@@ -143,91 +161,71 @@ function renderConversations(conversationIds) {
     });
 }
 
-// ============================
-//  Obsługa wyjaśniania
-// ============================
-
 async function explainCode() {
     const code = document.getElementById("code-snippet").value;
-    const conversationId = document.getElementById("current-conversation-id").value;
+    const cid = document.getElementById("current-conversation-id").value.trim();
 
-    // Wywołujemy /explain
     const response = await fetch("/explain", {
         method: "POST",
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        body: new URLSearchParams({ code, conversation_id: conversationId })
+        headers: {"Content-Type": "application/x-www-form-urlencoded"},
+        body: new URLSearchParams({ code, conversation_id: cid })
     });
     const data = await response.json();
 
-    // Sprawdź, czy jest błąd
     if (data.error) {
         alert(data.error);
         return;
     }
 
-    // Dodaj do panelu
     appendMessage(data.code, data.explanation);
-    // Nie czyścimy code-snippet, aby użytkownik widział swój kod
+    // Nie czyścimy code-snippet, by user widział swój kod
 }
 
 function appendMessage(code, explanation) {
     const messagesDiv = document.getElementById("messages");
 
-    // Blok "user" (kod)
-    const userMessage = document.createElement("div");
-    userMessage.className = "user-message";
+    // Sekcja z kodem (user)
+    const userDiv = document.createElement("div");
+    userDiv.className = "user-message";
 
-    const preCode = document.createElement("pre");
+    const preEl = document.createElement("pre");
     const codeEl = document.createElement("code");
     codeEl.className = "language-python";
     codeEl.textContent = code;
-    preCode.appendChild(codeEl);
 
-    userMessage.appendChild(preCode);
-    messagesDiv.appendChild(userMessage);
+    preEl.appendChild(codeEl);
+    userDiv.appendChild(preEl);
+    messagesDiv.appendChild(userDiv);
 
-    // Blok "bot" (wyjaśnienie) – parsujemy ewentualne ```python
-    // Zastępujemy ```python ... ```
-    const botMessage = document.createElement("div");
-    botMessage.className = "bot-message";
-    const processedExplanation = parseMarkdownToHtml(explanation);
-    botMessage.innerHTML = processedExplanation;
-    messagesDiv.appendChild(botMessage);
+    // Sekcja z wyjaśnieniem (bot)
+    const botDiv = document.createElement("div");
+    botDiv.className = "bot-message";
+    botDiv.innerHTML = parseMarkdownToHtml(explanation);
+    messagesDiv.appendChild(botDiv);
 
     // highlight.js
-    document.querySelectorAll('pre code').forEach((block) => {
+    document.querySelectorAll("pre code").forEach(block => {
         hljs.highlightElement(block);
     });
-
     messagesDiv.scrollTop = messagesDiv.scrollHeight;
 }
 
-// Prosta funkcja do zmiany ```python na <pre><code class="language-python">
+/** Zastępuje ```python ...``` → <pre><code class="language-python">..., usuwając duplikaty. */
 function parseMarkdownToHtml(text) {
     let result = text;
     result = result.replace(/```python/g, '<pre><code class="language-python">');
     result = result.replace(/```/g, '</code></pre>');
-    // W code-blockach i tak mamy whitespace. Dla zwykłego tekstu -> <br>
     result = result.replace(/\n/g, '<br>');
     return result;
 }
 
-// ============================
-//  Obsługa reset i exit
-// ============================
-
-async function resetConversation() {
-    const conversationId = document.getElementById("current-conversation-id").value;
-    if (!conversationId) {
-        alert("Brak wybranej konwersacji do zresetowania.");
-        return;
-    }
-    await fetch("/reset", {
-        method: "POST",
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        body: new URLSearchParams({ conversation_id: conversationId })
-    });
-
+/**
+ * Kliknięcie przycisku "Resetuj rozmowę":
+ * Czyścimy lokalnie -> (pole kodu i panel wiadomości).
+ * Plik .json pozostaje nietknięty.
+ */
+function localReset() {
+    document.getElementById("code-snippet").value = "";
     document.getElementById("messages").innerHTML = "";
 }
 
@@ -249,8 +247,6 @@ async function exitApp() {
     document.getElementById("exit-button").remove();
     document.getElementById("new-conversation").remove();
 }
-
-// ============================
 </script>
 </body>
 </html>

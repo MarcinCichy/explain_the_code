@@ -49,6 +49,13 @@ body {
     text-decoration: underline;
 }
 
+/* Podświetlenie aktywnej konwersacji */
+.active-conversation {
+    background-color: #444;
+    border-radius: 4px;
+    padding: 5px;
+}
+
 .delete-button {
     background-color: #dc3545;
     color: white;
@@ -92,7 +99,6 @@ body {
     margin-bottom: 10px;
 }
 
-/* Tekstarea */
 #code-snippet {
     background-color: #2c2c2c;
     color: #fff;
@@ -100,7 +106,7 @@ body {
     border-radius: 5px;
     padding: 10px;
     font-family: monospace;
-    resize: none;  /* wypełni flexem */
+    resize: none;
     flex: 1;
     min-height: 0;
     margin-bottom: 10px;
@@ -156,6 +162,7 @@ body {
     min-height: 300px;
     padding: 10px;
     box-sizing: border-box;
+    overflow-x: auto;
 }
 
 /* Wiadomości */
@@ -165,7 +172,7 @@ body {
 
 .bot-message {
     margin-bottom: 20px;
-    color: #fff;   /* Białe wyjaśnienia */
+    color: #fff;
 }
 
 /* Kod highlight.js */
@@ -180,4 +187,3 @@ pre {
 code.language-python {
     font-family: monospace;
 }
-
