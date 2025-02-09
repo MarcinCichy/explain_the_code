@@ -6,12 +6,13 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
     <!-- Styl highlight.js, np. github-dark -->
     <link rel="stylesheet"
-          href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.7.0/styles/github-dark.min.css">
+          href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.7.0/styles/monokai-sublime.min.css">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.7.0/highlight.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/4.3.0/marked.min.js"></script>
 </head>
 <body>
-<div class="container">
-    <!-- Lewy panel (konwersacje) -->
+<div class="container" id="main-container">
+    <!-- Lewy panel (sidebar) -->
     <div class="sidebar">
         <h2>Twoje konwersacje</h2>
         <ul id="conversation-list">
@@ -27,13 +28,17 @@
         <button id="new-conversation" class="green-button">Nowa konwersacja</button>
     </div>
 
+    <!-- Kontener przycisku przełączającego widoczność sidebaru -->
+    <div id="toggle-sidebar-container">
+        <button id="toggle-sidebar">&lt;&lt;</button>
+    </div>
+
     <!-- Środkowy panel (wklejanie kodu) -->
     <div class="middle-panel">
         <h1>Wklej kod Pythona do wyjaśnienia</h1>
 
         <input type="hidden" id="current-conversation-id" value="">
 
-        <!-- Wyłączamy sprawdzanie pisowni -->
         <textarea id="code-snippet" rows="15" spellcheck="false"
                   placeholder="Tu wklej swój kod..."></textarea>
 
@@ -60,6 +65,8 @@ document.addEventListener("DOMContentLoaded", () => {
     document.getElementById("explain-button").addEventListener("click", explainCode);
     document.getElementById("reset-button").addEventListener("click", localReset);
     document.getElementById("exit-button").addEventListener("click", exitApp);
+    // Dodajemy obsługę przycisku toggle sidebar
+    document.getElementById("toggle-sidebar").addEventListener("click", toggleSidebar);
 });
 
 /* Podświetla aktywną konwersację w lewym panelu */
@@ -83,8 +90,7 @@ async function newConversation() {
     currentConversationId = data.conversation_id;
     document.getElementById("current-conversation-id").value = currentConversationId;
 
-    // Czyścimy prawy panel i TEKST w code-snippet?
-    // Rzecz gustu - zostawię jako czyste, bo to "nowa" konwersacja
+    // Czyścimy prawy panel oraz pole kodu, bo to "nowa" konwersacja
     document.getElementById("messages").innerHTML = "";
     document.getElementById("code-snippet").value = "";
 
@@ -131,7 +137,7 @@ async function deleteConversation(cid) {
         currentConversationId = "";
         document.getElementById("current-conversation-id").value = "";
         document.getElementById("messages").innerHTML = "";
-        // Nie kasujemy code-snippet, bo user może chcieć go dalej użyć
+        // Nie kasujemy code-snippet, bo użytkownik może chcieć go dalej użyć
     }
     renderConversations(data.conversations);
     markActiveConversation("");
@@ -178,13 +184,13 @@ async function explainCode() {
     }
 
     appendMessage(data.code, data.explanation);
-    // Nie czyścimy code-snippet, by user widział swój kod
+    // Nie czyścimy code-snippet, aby użytkownik widział swój kod
 }
 
 function appendMessage(code, explanation) {
     const messagesDiv = document.getElementById("messages");
 
-    // Sekcja z kodem (user)
+    // Sekcja z kodem (użytkownik)
     const userDiv = document.createElement("div");
     userDiv.className = "user-message";
 
@@ -210,14 +216,25 @@ function appendMessage(code, explanation) {
     messagesDiv.scrollTop = messagesDiv.scrollHeight;
 }
 
-/** Zastępuje ```python ...``` → <pre><code class="language-python">..., usuwając duplikaty. */
+/** Funkcja przekształcająca format markdown z blokami kodu na HTML */
 function parseMarkdownToHtml(text) {
-    let result = text;
-    result = result.replace(/```python/g, '<pre><code class="language-python">');
-    result = result.replace(/```/g, '</code></pre>');
-    result = result.replace(/\n/g, '<br>');
-    return result;
+    // Definiujemy własny renderer dla marked.js
+    const renderer = new marked.Renderer();
+
+    // Nadpisujemy metodę odpowiedzialną za renderowanie bloków kodu
+    renderer.code = function(code, language) {
+        if (language && language.toLowerCase() === 'python') {
+            // Zwracamy blok kodu z zachowaniem oryginalnego formatowania i klasą do podświetlania
+            return '<pre><code class="language-python">' + code + '</code></pre>';
+        }
+        // Dla innych języków lub braku deklaracji języka używamy domyślnego renderowania
+        return '<pre><code>' + code + '</code></pre>';
+    };
+
+    // Używamy marked.js z naszym niestandardowym rendererem do konwersji markdown na HTML
+    return marked.parse(text, { renderer: renderer });
 }
+
 
 /**
  * Kliknięcie przycisku "Resetuj rozmowę":
@@ -246,6 +263,27 @@ async function exitApp() {
     document.getElementById("reset-button").remove();
     document.getElementById("exit-button").remove();
     document.getElementById("new-conversation").remove();
+}
+
+/* Funkcja przełączająca widoczność lewego panelu (sidebar) oraz dostosowująca układ */
+function toggleSidebar() {
+    const sidebar = document.querySelector(".sidebar");
+    const container = document.getElementById("main-container");
+    const toggleButton = document.getElementById("toggle-sidebar");
+
+    if (!sidebar.classList.contains("hidden")) {
+        // Ukrywamy sidebar i dodajemy klasę modyfikującą układ
+        sidebar.classList.add("hidden");
+        container.classList.add("sidebar-hidden");
+        // Po ukryciu – przycisk zmienia się na ">>"
+        toggleButton.innerText = ">>";
+    } else {
+        // Przywracamy sidebar
+        sidebar.classList.remove("hidden");
+        container.classList.remove("sidebar-hidden");
+        // Po przywróceniu – przycisk zmienia się na "<<"
+        toggleButton.innerText = "<<";
+    }
 }
 </script>
 </body>

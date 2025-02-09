@@ -187,3 +187,40 @@ pre {
 code.language-python {
     font-family: monospace;
 }
+
+/* Kontener przycisku toggle */
+/* Ustawiamy przycisk absolutnie i centrowanie wertykalne przy użyciu top: 50% oraz transform */
+#toggle-sidebar-container {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background-color: #2c2c2c;
+    padding: 5px;
+    width: 40px;
+    position: absolute;
+    top: 50%;
+    transform: translateY(-50%);
+    z-index: 100;
+    /* Gdy sidebar jest widoczny – przycisk ustawiony za nim */
+    left: 20%;
+}
+
+/* Gdy sidebar jest ukryty – przesuwamy przycisk do lewej krawędzi */
+.container.sidebar-hidden #toggle-sidebar-container {
+    left: 0;
+}
+
+/* Klasa ukrywająca element (dla sidebar) */
+.hidden {
+    display: none;
+}
+
+/* Dodatkowe style, gdy sidebar jest ukryty:
+   - Środkowy panel zachowuje 35% szerokości,
+   - Prawy panel rozszerza się do 65% */
+.container.sidebar-hidden .middle-panel {
+    width: 35%;
+}
+.container.sidebar-hidden .right-panel {
+    width: 65%;
+}
