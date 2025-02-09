@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <title>Wyjaśnianie kodu w Pythonie</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+    <link rel="stylesheet"
+          href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.7.0/styles/github-dark.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.7.0/highlight.min.js"></script>
+</head>
+<body>
+<div class="container">
+    <!-- Lewy panel: lista konwersacji -->
+    <div class="sidebar">
+        <h2>Konwersacje</h2>
+        <ul id="conversation-list">
+            {% for cid in conversations %}
+            <li class="conversation-item">
+                <span class="conversation-name" onclick="loadConversation('{{ cid }}')">
+                    Konwersacja {{ cid }}
+                </span>
+                <button class="delete-button" onclick="deleteConversation('{{ cid }}')">Usuń</button>
+            </li>
+            {% endfor %}
+        </ul>
+        <button id="new-conversation" class="green-button">Nowa konwersacja</button>
+    </div>
+
+    <!-- Środkowy panel: wklejanie kodu -->
+    <div class="middle-panel">
+        <h1>Wklej kod Pythona do wyjaśnienia</h1>
+        <form id="code-form">
+            <input type="hidden" id="current-conversation-id" name="conversation_id" value="">
+            <textarea id="code-snippet" name="code" rows="15"
+                      placeholder="Tu wklej swój kod..."></textarea>
+            <button type="submit" class="green-button">Wyjaśnij</button>
+        </form>
+
+        <div class="buttons">
+            <button id="reset-button" class="yellow-button">Resetuj rozmowę</button>
+            <button id="exit-button" class="red-button">Zakończ</button>
+        </div>
+    </div>
+
+    <!-- Prawy panel: wyjaśnienia -->
+    <div class="right-panel">
+        <h1>Wyjaśnienia</h1>
+        <div id="explanation-area"></div>
+    </div>
+</div>
+
+<script>
+// Globalnie przechowujemy aktualne conversation_id
+let currentConversationId = "";
+
+// Po załadowaniu strony:
+document.addEventListener("DOMContentLoaded", () => {
+    // Obsługa tworzenia nowej konwersacji
+    document.getElementById("new-conversation").addEventListener("click", createNewConversation);
+
+    // Obsługa wysyłania kodu do wyjaśnienia
+    document.getElementById("code-form").addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const code = document.getElementById("code-snippet").value;
+        const conversationId = document.getElementById("current-conversation-id").value;
+
+        if (!conversationId) {
+            alert("Wybierz lub utwórz nową konwersację.");
+            return;
+        }
+
+        // Wyślij kod do endpointu /explain
+        const response = await fetch("/explain", {
+            method: "POST",
+            headers: { "Content-Type": "application/x-www-form-urlencoded" },
+            body: new URLSearchParams({ code, conversation_id: conversationId })
+        });
+        const data = await response.json();
+
+        // Wyświetl w prawym panelu
+        displayExplanations(data.explanations);
+
+        // Wyczyść pole
+        document.getElementById("code-snippet").value = "";
+    });
+
+    // Obsługa resetu
+    document.getElementById("reset-button").addEventListener("click", resetConversation);
+
+    // Obsługa exit
+    document.getElementById("exit-button").addEventListener("click", exitApp);
+});
+
+async function createNewConversation() {
+    const response = await fetch("/new_conversation", { method: "POST" });
+    const data = await response.json();
+
+    currentConversationId = data.conversation_id;
+    document.getElementById("current-conversation-id").value = currentConversationId;
+
+    // Wyczyść wyjaśnienia
+    document.getElementById("explanation-area").innerHTML = "";
+    // Odśwież listę konwersacji w panelu
+    renderConversations(data.conversations);
+}
+
+async function loadConversation(cid) {
+    const response = await fetch("/load_conversation", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ conversation_id: cid })
+    });
+    const data = await response.json();
+
+    currentConversationId = data.conversation_id;
+    document.getElementById("current-conversation-id").value = currentConversationId;
+
+    // Wyczyść strefę wyjaśnień
+    const explanationArea = document.getElementById("explanation-area");
+    explanationArea.innerHTML = "";
+
+    // data.messages to tablica; każda zawiera {"original_code": "...", "chunks": [...]}
+    data.messages.forEach(msg => {
+        displayExplanations(msg.chunks);
+    });
+}
+
+async function deleteConversation(cid) {
+    const response = await fetch("/delete_conversation", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ conversation_id: cid })
+    });
+    const data = await response.json();
+
+    // Jeśli usunięto konwersację, którą aktualnie oglądamy, wyczyść widok
+    if (currentConversationId === data.conversation_id) {
+        document.getElementById("explanation-area").innerHTML = "";
+        document.getElementById("current-conversation-id").value = "";
+        currentConversationId = "";
+    }
+    renderConversations(data.conversations);
+}
+
+function renderConversations(conversationIds) {
+    const listEl = document.getElementById("conversation-list");
+    listEl.innerHTML = "";
+    conversationIds.forEach(cid => {
+        const li = document.createElement("li");
+        li.classList.add("conversation-item");
+
+        const span = document.createElement("span");
+        span.classList.add("conversation-name");
+        span.textContent = "Konwersacja " + cid;
+        span.onclick = () => loadConversation(cid);
+
+        const delBtn = document.createElement("button");
+        delBtn.classList.add("delete-button");
+        delBtn.textContent = "Usuń";
+        delBtn.onclick = () => deleteConversation(cid);
+
+        li.appendChild(span);
+        li.appendChild(delBtn);
+        listEl.appendChild(li);
+    });
+}
+
+function displayExplanations(explanations) {
+    // explanations to tablica obiektów: { chunk: "...", explanation: "..." }
+    const explanationArea = document.getElementById("explanation-area");
+
+    explanations.forEach(item => {
+        // Wstaw blok kodu
+        const codeBlock = document.createElement("pre");
+        const codeElement = document.createElement("code");
+        codeElement.classList.add("language-python");
+        codeElement.textContent = item.chunk;  // oryginalny fragment kodu
+        codeBlock.appendChild(codeElement);
+
+        explanationArea.appendChild(codeBlock);
+
+        // Wstaw opis
+        const desc = document.createElement("div");
+        desc.className = "bot-explanation";  // klasa stylu
+        // Możesz podmienić \n → <br> jeśli chcesz zachować podział
+        desc.innerHTML = item.explanation.replace(/\n/g, "<br>");
+        explanationArea.appendChild(desc);
+
+        // Dodatkowy odstęp
+        const separator = document.createElement("hr");
+        separator.style.border = "0.5px solid #444";
+        explanationArea.appendChild(separator);
+    });
+
+    // Uruchamiamy highlight.js do kolorowania
+    document.querySelectorAll('pre code').forEach((block) => {
+        hljs.highlightElement(block);
+    });
+
+    // Scroll na dół
+    explanationArea.scrollTop = explanationArea.scrollHeight;
+}
+
+async function resetConversation() {
+    if (!currentConversationId) {
+        alert("Brak wybranej konwersacji do zresetowania.");
+        return;
+    }
+    await fetch("/reset", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({ conversation_id: currentConversationId })
+    });
+
+    // Wyczyść prawy panel
+    document.getElementById("explanation-area").innerHTML = "";
+}
+
+async function exitApp() {
+    const response = await fetch("/exit", { method: "POST" });
+    const data = await response.json();
+
+    const explanationArea = document.getElementById("explanation-area");
+    const msg = document.createElement("div");
+    msg.classList.add("bot-explanation");
+    msg.innerHTML = `<strong>${data.message}</strong><br>
+                     Liczba konwersacji: ${data.conversation_count}<br>
+                     Liczba wyjaśnień (łącznie): ${data.questions_asked}`;
+    explanationArea.appendChild(msg);
+
+    // Możemy zablokować dalsze interakcje
+    document.getElementById("code-form").remove();
+    document.querySelector(".buttons").remove();
+}
+</script>
+</body>
+</html>
