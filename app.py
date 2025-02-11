@@ -127,8 +127,9 @@ def analyze_code_snippet(code_snippet):
     Dzieli kod na mniejsze fragmenty przy użyciu inteligentnego podziału,
     pyta ChatGPT o wyjaśnienie każdego fragmentu i łączy wyniki w jeden string.
 
-    Każda sekcja zawiera najpierw cały kod danej części (umieszczony w bloku kodu),
-    a następnie wyjaśnienie.
+    W oknie wyjaśnień pojawią się wyłącznie cytowane fragmenty kodu wraz z omówieniem.
+    Jako "oryginalny kod" zwracamy nagłówek (pierwszą linię), aby użytkownik wiedział,
+    o którą funkcję chodzi.
     """
     # Używamy AI do podziału kodu na logiczne sekcje
     sections = smart_split_code_snippet(code_snippet)
@@ -140,25 +141,28 @@ def analyze_code_snippet(code_snippet):
             if isinstance(sec, dict):
                 fixed_sections.append(sec)
             else:
-                # Jeśli element nie jest słownikiem, opakowujemy go w słownik
-                fixed_sections.append({"title": "Sekcja", "code": sec})
+                fixed_sections.append({"code": sec})
     else:
-        fixed_sections = [{"title": "Cały kod", "code": code_snippet}]
+        fixed_sections = [{"code": code_snippet}]
+
+    # Wyciągamy nagłówek – np. pierwszą linię oryginalnego kodu (założenie: zawiera ona sygnaturę funkcji)
+    header_line = code_snippet.split('\n')[0]
 
     explanations = []
     for section in fixed_sections:
         section_code = section.get("code", "")
+        # Dzielimy sekcję na mniejsze bloki, jeśli jest bardzo długa
         blocks = further_split_if_too_large(section_code, max_lines=20)
-        section_explanation = []
+        section_parts = []
         for block in blocks:
             exp_text = get_explanation_for_block(block)
-            section_explanation.append(exp_text)
-        combined_section_explanation = "\n\n".join(section_explanation)
-        # Zamiast dodawania tytułu dodajemy najpierw kod w formie bloku, a potem wyjaśnienie
-        explanations.append(f"```python\n{section_code}\n```\n\n{combined_section_explanation}")
-
+            # Dołączamy cytowany fragment kodu wraz z jego wyjaśnieniem
+            section_parts.append(f"```python\n{block}\n```\n\n{exp_text}")
+        explanations.append("\n\n".join(section_parts))
     combined_explanation = "\n\n".join(explanations)
-    return code_snippet, combined_explanation
+
+    # Zwracamy nagłówek jako "oryginalny kod" (nie pusty) oraz wyjaśnienie zawierające cytowane fragmenty
+    return header_line, combined_explanation
 
 
 # ========================================
