@@ -1,22 +1,32 @@
+from openai import OpenAI
 import os
 import json
-import re
-import openai
-
-from flask import Flask, render_template, request, jsonify
 from dotenv import load_dotenv
 
+
 load_dotenv()
-openai.api_key = os.getenv("OPENAI_API_KEY")
+client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+
+# Monkey-patch dla Werkzeug, żeby dodać brakującą funkcję url_quote
+import werkzeug.urls
+if not hasattr(werkzeug.urls, 'url_quote'):
+    from werkzeug.utils import quote as url_quote
+    werkzeug.urls.url_quote = url_quote
+
+from flask import Flask, render_template, request, jsonify
+
+
+
+# openai.api_key = os.getenv("OPENAI_API_KEY")
 
 app = Flask(__name__)
 
 CONVERSATIONS_FILE = "conversations.json"
 
-
 # ========================================
 #  Funkcje wczytywania/zapisywania
 # ========================================
+
 
 def load_conversations():
     """Wczytuje konwersacje z pliku JSON."""
@@ -32,21 +42,14 @@ def save_conversations(convs):
     with open(CONVERSATIONS_FILE, "w", encoding="utf-8") as f:
         json.dump(convs, f, indent=4, ensure_ascii=False)
 
-
 # ========================================
 #  Funkcje dzielenia kodu i ChatGPT
 # ========================================
 
+
 def smart_split_code_snippet(code_snippet):
     """
     Inteligentnie dzieli kod na logiczne sekcje przy użyciu AI.
-
-    Funkcja wysyła kod do modelu OpenAI, prosząc o podział kodu na logiczne sekcje.
-    Odpowiedź powinna być w formacie JSON – lista obiektów, gdzie każdy obiekt posiada
-    klucze "title" (krótki tytuł sekcji) oraz "code" (fragment kodu należący do tej sekcji).
-
-    W przypadku niepowodzenia parsowania lub wystąpienia błędu (np. przekroczenia limitu),
-    zwraca całość kodu jako jedną sekcję lub komunikat o błędzie.
     """
     prompt = (
         "Podziel poniższy kod na logiczne sekcje, które oddzielają różne zagadnienia programowania. "
@@ -56,15 +59,23 @@ def smart_split_code_snippet(code_snippet):
         "Kod:\n\n" + code_snippet
     )
     try:
-        response = openai.ChatCompletion.create(
+        # response = openai.ChatCompletion.create(
+        #     model="gpt-3.5-turbo",
+        #     messages=[
+        #         {"role": "system", "content": "Jesteś ekspertem w nauczaniu programowania."},
+        #         {"role": "user", "content": prompt}
+        #     ],
+        #     temperature=0.3,
+        # )
+        # result = response['choices'][0]['message']['content'].strip()
+        response = client.chat.completions.create(
             model="gpt-3.5-turbo",
             messages=[
                 {"role": "system", "content": "Jesteś ekspertem w nauczaniu programowania."},
                 {"role": "user", "content": prompt}
-            ],
-            temperature=0.3,
-        )
-        result = response['choices'][0]['message']['content'].strip()
+        ],
+        temperature=0.3)
+        result = response.choices[0].message.content.strip()
         if not result:
             raise ValueError("Odpowiedź API jest pusta.")
         sections = json.loads(result)
@@ -105,7 +116,16 @@ def get_explanation_for_block(block):
         "ale tłumacz w jasny, przyjazny sposób."
     )
     try:
-        response = openai.ChatCompletion.create(
+        # response = openai.ChatCompletion.create(
+        #     model="gpt-3.5-turbo",
+        #     messages=[
+        #         {"role": "system", "content": system_message},
+        #         {"role": "user", "content": block}
+        #     ],
+        #     temperature=0.2
+        # )
+        # return response['choices'][0]['message']['content']
+        response = client.chat.completions.create(
             model="gpt-3.5-turbo",
             messages=[
                 {"role": "system", "content": system_message},
@@ -113,7 +133,7 @@ def get_explanation_for_block(block):
             ],
             temperature=0.2
         )
-        return response['choices'][0]['message']['content']
+        return response.choices[0].message.content
     except Exception as e:
         err_str = str(e).lower()
         if "limit" in err_str or "koszt" in err_str or "quota" in err_str:
@@ -126,15 +146,9 @@ def analyze_code_snippet(code_snippet):
     """
     Dzieli kod na mniejsze fragmenty przy użyciu inteligentnego podziału,
     pyta ChatGPT o wyjaśnienie każdego fragmentu i łączy wyniki w jeden string.
-
-    W oknie wyjaśnień pojawią się wyłącznie cytowane fragmenty kodu wraz z omówieniem.
-    Jako "oryginalny kod" zwracamy nagłówek (pierwszą linię), aby użytkownik wiedział,
-    o którą funkcję chodzi.
     """
-    # Używamy AI do podziału kodu na logiczne sekcje
     sections = smart_split_code_snippet(code_snippet)
 
-    # Upewnijmy się, że mamy listę słowników:
     fixed_sections = []
     if isinstance(sections, list):
         for sec in sections:
@@ -145,29 +159,24 @@ def analyze_code_snippet(code_snippet):
     else:
         fixed_sections = [{"code": code_snippet}]
 
-    # Wyciągamy nagłówek – np. pierwszą linię oryginalnego kodu (założenie: zawiera ona sygnaturę funkcji)
     header_line = code_snippet.split('\n')[0]
 
     explanations = []
     for section in fixed_sections:
         section_code = section.get("code", "")
-        # Dzielimy sekcję na mniejsze bloki, jeśli jest bardzo długa
         blocks = further_split_if_too_large(section_code, max_lines=20)
         section_parts = []
         for block in blocks:
             exp_text = get_explanation_for_block(block)
-            # Dołączamy cytowany fragment kodu wraz z jego wyjaśnieniem
             section_parts.append(f"```python\n{block}\n```\n\n{exp_text}")
         explanations.append("\n\n".join(section_parts))
     combined_explanation = "\n\n".join(explanations)
-
-    # Zwracamy nagłówek jako "oryginalny kod" (nie pusty) oraz wyjaśnienie zawierające cytowane fragmenty
     return header_line, combined_explanation
-
 
 # ========================================
 #  Endpointy RAG
 # ========================================
+
 
 @app.route("/")
 def index():
@@ -178,16 +187,13 @@ def index():
 
 @app.route("/new_conversation", methods=["POST"])
 def new_conversation():
-    """
-    Tworzy nową konwersację (pustą) z unikalnym ID, nawet jeśli usunięto starsze ID.
-    """
     convs = load_conversations()
     if convs:
         max_id = max(int(k) for k in convs.keys())
     else:
         max_id = 0
     new_id = str(max_id + 1)
-    convs[new_id] = []  # pusta lista
+    convs[new_id] = []
     save_conversations(convs)
     return jsonify({
         "conversation_id": new_id,
@@ -197,9 +203,6 @@ def new_conversation():
 
 @app.route("/load_conversation", methods=["POST"])
 def load_conversation():
-    """
-    Ładuje listę {code, explanation} z wybranej konwersacji.
-    """
     data = request.json
     cid = data.get("conversation_id", "")
     convs = load_conversations()
@@ -227,11 +230,6 @@ def delete_conversation():
 
 @app.route("/reset", methods=["POST"])
 def reset_chat():
-    """
-    Obecnie NIC nie usuwa z pliku (zgodnie z wymaganiem).
-    To endpoint oryginalny RAG, ale nasz "Reset" w UI
-    tylko czyści okna. (Zostawiamy endpoint w spokoju.)
-    """
     return jsonify({"status": "local_reset"})
 
 
@@ -279,4 +277,4 @@ def exit_app():
 
 
 if __name__ == "__main__":
-    app.run(debug=True)
+    app.run(host='0.0.0.0', port=5011)
